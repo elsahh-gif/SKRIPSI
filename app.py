@@ -2,686 +2,552 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from xgboost import XGBRegressor
-from sklearn.neighbors import KNeighborsRegressor
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import mean_absolute_error, r2_score
-from textblob import TextBlob
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import warnings
 warnings.filterwarnings('ignore')
 
-# ===== PAGE CONFIG =====
+# Konfigurasi halaman
 st.set_page_config(
-    page_title="SPK Promosi Karyawan PT TOTO",
+    page_title="Sistem Prediksi Promosi Karyawan PT TOTO",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ===== CUSTOM CSS =====
+# CSS Custom
 st.markdown("""
-<style>
+    <style>
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
         color: #1f77b4;
         text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    .sub-header {
+        font-size: 1.2rem;
+        color: #666;
+        text-align: center;
         margin-bottom: 2rem;
     }
     .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 20px;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        padding: 10px 24px;
         background-color: #f0f2f6;
-        border-radius: 5px;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
     }
-</style>
+    .stAlert {
+        margin-top: 1rem;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
-# ===== TITLE =====
-st.markdown('<h1 class="main-header">📊 SISTEM PENDUKUNG KEPUTUSAN PROMOSI KARYAWAN</h1>', unsafe_allow_html=True)
-st.markdown('<h3 style="text-align:center; color:gray;">Hybrid Machine Learning & Text Analysis - PT TOTO</h3>', unsafe_allow_html=True)
-st.markdown("---")
+# Header
+st.markdown('<p class="main-header">📊 Sistem Prediksi Promosi Karyawan</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-header">PT TOTO Indonesia - Analisis Machine Learning untuk Keputusan Promosi</p>', unsafe_allow_html=True)
 
-# ===== FUNCTIONS =====
-
-@st.cache_data
-def load_data():
-    """Load dan merge semua data"""
-    df_penilaian = pd.read_csv('data_penilaian_1000.csv')
-    df_promosi = pd.read_csv('data_promosi_1000.csv')
-    df_pelatihan = pd.read_csv('data_pelatihan_1000.csv')
+# Sidebar
+with st.sidebar:
+    st.image("https://via.placeholder.com/200x80/1f77b4/ffffff?text=PT+TOTO", use_container_width=True)
+    st.markdown("### 📋 Tentang Aplikasi")
+    st.info("""
+    Aplikasi ini menggunakan 3 algoritma Machine Learning:
+    1. **Random Forest** ⭐
+    2. **XGBoost** ⭐
+    3. **K-Nearest Neighbors** ⭐
     
-    # Merge data
-    df_merged = df_penilaian.merge(df_promosi, on=['nama', 'prn'], how='left')
+    untuk memprediksi kelayakan promosi karyawan berdasarkan data historis.
+    """)
     
-    # Agregasi data pelatihan
-    pelatihan_agg = df_pelatihan.groupby('prn').agg({
-        'id_pelatihan': 'count',
-        'nilai': 'mean',
-        'sertifikat': lambda x: (x == 'Ya').sum()
-    }).reset_index()
-    pelatihan_agg.columns = ['prn', 'jumlah_pelatihan', 'rata_nilai_pelatihan', 'jumlah_sertifikat']
-    
-    df_merged = df_merged.merge(pelatihan_agg, on='prn', how='left')
-    df_merged = df_merged.fillna(0)
-    
-    return df_merged, df_penilaian, df_promosi, df_pelatihan
-
-def text_analysis(text):
-    """Analisis sentiment dan keyword dari catatan evaluasi"""
-    if pd.isna(text) or text == '':
-        return 0, 0, 0
-    
-    # Sentiment Analysis
-    blob = TextBlob(str(text))
-    sentiment = blob.sentiment.polarity
-    
-    # Keyword Positif
-    positive_keywords = ['baik', 'bagus', 'excellent', 'tinggi', 'memuaskan', 'outstanding', 
-                         'konsisten', 'rajin', 'proaktif', 'dedikasi', 'inisiatif', 'solid',
-                         'efektif', 'produktif', 'inovatif', 'profesional', 'komunikatif']
-    positive_count = sum(1 for word in positive_keywords if word in text.lower())
-    
-    # Keyword Negatif
-    negative_keywords = ['kurang', 'rendah', 'buruk', 'lambat', 'terlambat', 'miss', 
-                         'komplain', 'masalah', 'bermasalah', 'tidak', 'belum',
-                         'perlu', 'improvement', 'bimbingan', 'supervisi']
-    negative_count = sum(1 for word in negative_keywords if word in text.lower())
-    
-    return sentiment, positive_count, negative_count
-
-def create_features(df):
-    """Membuat features untuk machine learning"""
-    df = df.copy()
-    
-    # Numerical Features
-    df['rata_nilai_evaluasi'] = (df['nilai_3_bulan'] + df['nilai_6_bulan'] + df['nilai_1_tahun']) / 3
-    df['trend_nilai'] = df['nilai_1_tahun'] - df['nilai_3_bulan']
-    
-    # Text Analysis Features
-    df['sentiment_3bln'], df['positive_kw_3bln'], df['negative_kw_3bln'] = zip(*df['catatan_3_bulan'].apply(text_analysis))
-    df['sentiment_6bln'], df['positive_kw_6bln'], df['negative_kw_6bln'] = zip(*df['catatan_6_bulan'].apply(text_analysis))
-    df['sentiment_1thn'], df['positive_kw_1thn'], df['negative_kw_1thn'] = zip(*df['catatan_1_tahun'].apply(text_analysis))
-    
-    df['avg_sentiment'] = (df['sentiment_3bln'] + df['sentiment_6bln'] + df['sentiment_1thn']) / 3
-    df['total_positive_kw'] = df['positive_kw_3bln'] + df['positive_kw_6bln'] + df['positive_kw_1thn']
-    df['total_negative_kw'] = df['negative_kw_3bln'] + df['negative_kw_6bln'] + df['negative_kw_1thn']
-    
-    # Encode seksi
-    le_seksi = LabelEncoder()
-    df['seksi_encoded'] = le_seksi.fit_transform(df['seksi'])
-    
-    # Target: Skor Promosi (0-100)
-    df['skor_promosi'] = (
-        0.4 * df['rata_nilai_evaluasi'] +
-        0.2 * (df['jumlah_pelatihan'] * 5).clip(0, 100) +
-        0.2 * df['rata_nilai_pelatihan'] +
-        0.1 * (df['avg_sentiment'] * 50 + 50) +
-        0.1 * (df['total_positive_kw'] * 10).clip(0, 100)
-    ).clip(0, 100)
-    
-    return df, le_seksi
-
-def train_models(X_train, X_test, y_train, y_test):
-    """Train 3 model ML"""
-    
-    # XGBoost
-    xgb_model = XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42, verbosity=0)
-    xgb_model.fit(X_train, y_train)
-    xgb_pred = xgb_model.predict(X_test)
-    
-    # Random Forest
-    rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
-    rf_model.fit(X_train, y_train)
-    rf_pred = rf_model.predict(X_test)
-    
-    # KNN
-    knn_model = KNeighborsRegressor(n_neighbors=5)
-    knn_model.fit(X_train, y_train)
-    knn_pred = knn_model.predict(X_test)
-    
-    # Ensemble: Weighted Average
-    ensemble_pred = (0.5 * xgb_pred + 0.3 * rf_pred + 0.2 * knn_pred)
-    
-    return xgb_model, rf_model, knn_model, ensemble_pred, xgb_pred, rf_Retry
-
-# ===== LOAD DATA =====
-with st.spinner('⏳ Loading data...'):
-    df_merged, df_penilaian, df_promosi, df_pelatihan = load_data()
-    df_features, le_seksi = create_features(df_merged)
-
-# ===== SIDEBAR =====
-st.sidebar.image("https://via.placeholder.com/300x100/1f77b4/ffffff?text=PT+TOTO", use_container_width=True)
-st.sidebar.markdown("## 🎯 Menu Navigasi")
-
-menu = st.sidebar.radio(
-    "Pilih Menu:",
-    ["🏠 Dashboard", "🤖 Model Training", "🔍 Prediksi Karyawan", "📈 Ranking", "ℹ️ Tentang"]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📊 Info Dataset")
-st.sidebar.metric("Total Karyawan", len(df_merged))
-st.sidebar.metric("Total Pelatihan", len(df_pelatihan))
-st.sidebar.metric("Rata-rata Nilai", f"{df_features['rata_nilai_evaluasi'].mean():.1f}")
-
-# ===== MENU 1: DASHBOARD =====
-if menu == "🏠 Dashboard":
-    st.header("📊 Dashboard Overview")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Karyawan", len(df_merged), delta="+10%")
-    with col2:
-        st.metric("Avg Skor Promosi", f"{df_features['skor_promosi'].mean():.1f}", delta="+5.2")
-    with col3:
-        st.metric("Layak Promosi", f"{(df_features['skor_promosi'] >= 80).sum()}", delta="+15")
-    with col4:
-        st.metric("Total Pelatihan", len(df_pelatihan), delta="+8%")
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📈 Distribusi Skor Promosi")
-        fig = px.histogram(df_features, x='skor_promosi', nbins=30, 
-                          title="Distribusi Skor Promosi Karyawan",
-                          labels={'skor_promosi': 'Skor Promosi', 'count': 'Jumlah Karyawan'},
-                          color_discrete_sequence=['#1f77b4'])
-        fig.add_vline(x=80, line_dash="dash", line_color="red", annotation_text="Threshold (80)")
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("🏢 Top 10 Seksi dengan Skor Tertinggi")
-        top_seksi = df_features.groupby('seksi')['skor_promosi'].mean().sort_values(ascending=False).head(10)
-        fig = px.bar(x=top_seksi.values, y=top_seksi.index, orientation='h',
-                    labels={'x': 'Avg Skor Promosi', 'y': 'Seksi'},
-                    color=top_seksi.values, color_continuous_scale='Blues')
-        st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📊 Korelasi Nilai Evaluasi vs Skor Promosi")
-        fig = px.scatter(df_features, x='rata_nilai_evaluasi', y='skor_promosi',
-                        color='jumlah_pelatihan', size='jumlah_sertifikat',
-                        hover_data=['nama', 'seksi'],
-                        title="Scatter: Nilai Evaluasi vs Skor Promosi",
-                        labels={'rata_nilai_evaluasi': 'Rata-rata Nilai Evaluasi',
-                               'skor_promosi': 'Skor Promosi'})
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("📝 Text Analysis - Sentiment Distribution")
-        sentiment_dist = pd.DataFrame({
-            'Sentiment': ['Positif' if x > 0 else 'Negatif' if x < 0 else 'Netral' 
-                         for x in df_features['avg_sentiment']],
-            'count': 1
-        }).groupby('Sentiment').count().reset_index()
-        
-        fig = px.pie(sentiment_dist, values='count', names='Sentiment',
-                    title="Distribusi Sentiment Catatan Evaluasi",
-                    color_discrete_sequence=['#2ecc71', '#e74c3c', '#95a5a6'])
-        st.plotly_chart(fig, use_container_width=True)
-
-# ===== MENU 2: MODEL TRAINING =====
-elif menu == "🤖 Model Training":
-    st.header("🤖 Training Hybrid Machine Learning Models")
-    
+    st.markdown("### 📊 Cara Menggunakan")
     st.markdown("""
-    ### 📌 Metodologi Hybrid ML + Text Analysis
-    
-    **1. Feature Engineering:**
-    - **Numerical Features**: Nilai evaluasi, jumlah pelatihan, rata-rata nilai pelatihan
-    - **Text Features**: Sentiment score, positive keywords count, negative keywords count
-    
-    **2. Machine Learning Models:**
-    - **XGBoost** (α=0.5): Optimal untuk data tabular dengan non-linear patterns
-    - **Random Forest** (α=0.3): Robust dan interpretable
-    - **K-Nearest Neighbors** (α=0.2): Baseline model
-    
-    **3. Ensemble:** Weighted average dari 3 model
+    1. Upload file **Data_Promosi_2025.xlsx**
+    2. Sistem otomatis akan memproses data
+    3. Lihat hasil prediksi dan analisis
+    4. Download hasil prediksi
     """)
     
     st.markdown("---")
+    st.markdown("**Developed by:** Tim Skripsi PT TOTO")
+    st.markdown("**Version:** 1.0")
+
+# Fungsi preprocessing data
+def preprocess_data(df):
+    """Preprocessing data untuk modeling"""
     
-    # Pilih features untuk training
-    feature_cols = ['rata_nilai_evaluasi', 'trend_nilai', 'jumlah_pelatihan', 
-                   'rata_nilai_pelatihan', 'jumlah_sertifikat', 'masa_jabatan',
-                   'avg_sentiment', 'total_positive_kw', 'total_negative_kw', 'seksi_encoded']
+    # Hapus baris yang tidak relevan (baris header duplikat)
+    df = df[df['NIK'].notna()].copy()
+    df = df[df['NIK'] != 'NIK'].copy()
     
-    X = df_features[feature_cols]
-    y = df_features['skor_promosi']
+    # Konversi NIK ke numeric
+    df['NIK'] = pd.to_numeric(df['NIK'], errors='coerce')
+    
+    # Drop baris dengan NIK null
+    df = df[df['NIK'].notna()].copy()
+    
+    # Target variable: KETERANGAN (C = Cukup, K = Kurang, B = Baik)
+    # Kita buat target binary: Layak Promosi (B, C) vs Tidak Layak (K)
+    df['Target_Promosi'] = df['KETERANGAN'].apply(lambda x: 1 if x in ['B', 'C'] else 0)
+    
+    # Feature engineering
+    features = []
+    
+    # 1. MASA JABATAN
+    if 'MASA JABATAN' in df.columns:
+        df['MASA JABATAN'] = pd.to_numeric(df['MASA JABATAN'], errors='coerce')
+        df['MASA JABATAN'].fillna(df['MASA JABATAN'].median(), inplace=True)
+        features.append('MASA JABATAN')
+    
+    # 2. AVG SCORE
+    if 'AVG SCORE' in df.columns:
+        df['AVG SCORE'] = pd.to_numeric(df['AVG SCORE'], errors='coerce')
+        df['AVG SCORE'].fillna(df['AVG SCORE'].median(), inplace=True)
+        features.append('AVG SCORE')
+    
+    # 3. LEVEL JABATAN (encode)
+    if 'LEVEL JABATAN' in df.columns:
+        le_jabatan = LabelEncoder()
+        df['LEVEL JABATAN_encoded'] = le_jabatan.fit_transform(df['LEVEL JABATAN'].fillna('Unknown'))
+        features.append('LEVEL JABATAN_encoded')
+    
+    # 4. Extract numerical features dari kolom tahun
+    year_columns = [col for col in df.columns if isinstance(col, int) and col >= 2020]
+    
+    for year_col in year_columns:
+        # Ambil kolom performance dari setiap tahun
+        try:
+            # Cari kolom yang berisi nilai numeric untuk tahun tersebut
+            year_idx = df.columns.get_loc(year_col)
+            # Ambil beberapa kolom setelahnya yang mungkin berisi performance data
+            for i in range(1, 6):
+                if year_idx + i < len(df.columns):
+                    col_name = df.columns[year_idx + i]
+                    if df[col_name].dtype in ['float64', 'int64'] or pd.to_numeric(df[col_name], errors='coerce').notna().sum() > 10:
+                        feature_name = f'{year_col}_feature_{i}'
+                        df[feature_name] = pd.to_numeric(df[col_name], errors='coerce')
+                        df[feature_name].fillna(df[feature_name].median(), inplace=True)
+                        features.append(feature_name)
+        except:
+            pass
+    
+    # Pastikan minimal ada 3 features
+    if len(features) < 3:
+        st.error("❌ Data tidak memiliki cukup fitur untuk modeling. Pastikan file Excel memiliki kolom yang benar.")
+        return None, None, None
+    
+    # Prepare X and y
+    X = df[features].copy()
+    y = df['Target_Promosi'].copy()
+    
+    # Handle any remaining NaN
+    X.fillna(X.median(), inplace=True)
+    
+    return X, y, df
+
+# Fungsi training models
+def train_models(X, y):
+    """Training 3 model: RF, XGBoost, KNN"""
     
     # Split data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
-    if st.button("🚀 Train Models", type="primary"):
-        with st.spinner("Training models... Please wait"):
-            xgb_model, rf_model, knn_model, ensemble_pred, xgb_pred, rf_pred, knn_pred = train_models(
-                X_train, X_test, y_train, y_test
-            )
-            
-            # Calculate metrics
-            xgb_mae = mean_absolute_error(y_test, xgb_pred)
-            rf_mae = mean_absolute_error(y_test, rf_pred)
-            knn_mae = mean_absolute_error(y_test, knn_pred)
-            ensemble_mae = mean_absolute_error(y_test, ensemble_pred)
-            
-            xgb_r2 = r2_score(y_test, xgb_pred)
-            rf_r2 = r2_score(y_test, rf_pred)
-            knn_r2 = r2_score(y_test, knn_pred)
-            ensemble_r2 = r2_score(y_test, ensemble_pred)
-            
-            st.success("✅ Models trained successfully!")
-            
-            # Display metrics
-            st.markdown("### 📊 Model Performance")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.markdown("**XGBoost**")
-                st.metric("MAE", f"{xgb_mae:.2f}")
-                st.metric("R² Score", f"{xgb_r2:.3f}")
-            
-            with col2:
-                st.markdown("**Random Forest**")
-                st.metric("MAE", f"{rf_mae:.2f}")
-                st.metric("R² Score", f"{rf_r2:.3f}")
-            
-            with col3:
-                st.markdown("**KNN**")
-                st.metric("MAE", f"{knn_mae:.2f}")
-                st.metric("R² Score", f"{knn_r2:.3f}")
-            
-            with col4:
-                st.markdown("**Ensemble (Hybrid)**")
-                st.metric("MAE", f"{ensemble_mae:.2f}", delta=f"-{xgb_mae-ensemble_mae:.2f}")
-                st.metric("R² Score", f"{ensemble_r2:.3f}", delta=f"+{ensemble_r2-xgb_r2:.3f}")
-            
-            st.markdown("---")
-            
-            # Feature Importance
-            st.subheader("📈 Feature Importance (Random Forest)")
-            
-            feature_importance = pd.DataFrame({
-                'Feature': feature_cols,
-                'Importance': rf_model.feature_importances_
-            }).sort_values('Importance', ascending=False)
-            
-            fig = px.bar(feature_importance, x='Importance', y='Feature', orientation='h',
-                        title="Feature Importance Analysis",
-                        color='Importance', color_continuous_scale='Viridis')
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Comparison chart
-            st.subheader("📊 Model Comparison")
-            
-            comparison_df = pd.DataFrame({
-                'Model': ['XGBoost', 'Random Forest', 'KNN', 'Ensemble'],
-                'MAE': [xgb_mae, rf_mae, knn_mae, ensemble_mae],
-                'R² Score': [xgb_r2, rf_r2, knn_r2, ensemble_r2]
-            })
-            
-            fig = go.Figure()
-            fig.add_trace(go.Bar(name='MAE', x=comparison_df['Model'], y=comparison_df['MAE'], marker_color='#e74c3c'))
-            fig.add_trace(go.Bar(name='R² Score', x=comparison_df['Model'], y=comparison_df['R² Score'], marker_color='#3498db'))
-            fig.update_layout(barmode='group', title="Model Performance Comparison")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Save models to session state
-            st.session_state['xgb_model'] = xgb_model
-            st.session_state['rf_model'] = rf_model
-            st.session_state['knn_model'] = knn_model
-            st.session_state['le_seksi'] = le_seksi
-            st.session_state['trained'] = True
+    results = {}
+    
+    # 1. Random Forest (Terbaik berdasarkan analisis)
+    with st.spinner('🌲 Training Random Forest...'):
+        rf_model = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=10)
+        rf_model.fit(X_train, y_train)
+        rf_pred = rf_model.predict(X_test)
+        rf_pred_proba = rf_model.predict_proba(X_test)[:, 1]
+        
+        results['Random Forest'] = {
+            'model': rf_model,
+            'predictions': rf_pred,
+            'probabilities': rf_pred_proba,
+            'accuracy': accuracy_score(y_test, rf_pred),
+            'precision': precision_score(y_test, rf_pred, zero_division=0),
+            'recall': recall_score(y_test, rf_pred, zero_division=0),
+            'f1': f1_score(y_test, rf_pred, zero_division=0),
+            'confusion_matrix': confusion_matrix(y_test, rf_pred),
+            'y_test': y_test
+        }
+    
+    # 2. XGBoost
+    with st.spinner('🚀 Training XGBoost...'):
+        xgb_model = XGBClassifier(n_estimators=100, random_state=42, max_depth=5, learning_rate=0.1)
+        xgb_model.fit(X_train, y_train)
+        xgb_pred = xgb_model.predict(X_test)
+        xgb_pred_proba = xgb_model.predict_proba(X_test)[:, 1]
+        
+        results['XGBoost'] = {
+            'model': xgb_model,
+            'predictions': xgb_pred,
+            'probabilities': xgb_pred_proba,
+            'accuracy': accuracy_score(y_test, xgb_pred),
+            'precision': precision_score(y_test, xgb_pred, zero_division=0),
+            'recall': recall_score(y_test, xgb_pred, zero_division=0),
+            'f1': f1_score(y_test, xgb_pred, zero_division=0),
+            'confusion_matrix': confusion_matrix(y_test, xgb_pred),
+            'y_test': y_test
+        }
+    
+    # 3. K-Nearest Neighbors
+    with st.spinner('👥 Training K-Nearest Neighbors...'):
+        knn_model = KNeighborsClassifier(n_neighbors=5)
+        knn_model.fit(X_train, y_train)
+        knn_pred = knn_model.predict(X_test)
+        knn_pred_proba = knn_model.predict_proba(X_test)[:, 1]
+        
+        results['KNN'] = {
+            'model': knn_model,
+            'predictions': knn_pred,
+            'probabilities': knn_pred_proba,
+            'accuracy': accuracy_score(y_test, knn_pred),
+            'precision': precision_score(y_test, knn_pred, zero_division=0),
+            'recall': recall_score(y_test, knn_pred, zero_division=0),
+            'f1': f1_score(y_test, knn_pred, zero_division=0),
+            'confusion_matrix': confusion_matrix(y_test, knn_pred),
+            'y_test': y_test
+        }
+    
+    return results
 
-# ===== MENU 3: PREDIKSI KARYAWAN =====
-elif menu == "🔍 Prediksi Karyawan":
-    st.header("🔍 Prediksi Skor Promosi Karyawan")
+# Fungsi prediksi semua data
+def predict_all_employees(models, X, df):
+    """Prediksi untuk semua karyawan"""
     
-    if 'trained' not in st.session_state:
-        st.warning("⚠️ Silakan train model terlebih dahulu di menu **Model Training**")
+    predictions = []
+    
+    for idx, row in df.iterrows():
+        employee_data = X.loc[idx:idx]
+        
+        # Prediksi dari setiap model
+        rf_prob = models['Random Forest']['model'].predict_proba(employee_data)[0][1]
+        xgb_prob = models['XGBoost']['model'].predict_proba(employee_data)[0][1]
+        knn_prob = models['KNN']['model'].predict_proba(employee_data)[0][1]
+        
+        # Average probability (ensemble)
+        avg_prob = (rf_prob + xgb_prob + knn_prob) / 3
+        
+        # Prediksi final (voting)
+        rf_pred = models['Random Forest']['model'].predict(employee_data)[0]
+        xgb_pred = models['XGBoost']['model'].predict(employee_data)[0]
+        knn_pred = models['KNN']['model'].predict(employee_data)[0]
+        
+        final_pred = 1 if (rf_pred + xgb_pred + knn_pred) >= 2 else 0
+        
+        predictions.append({
+            'NIK': int(df.loc[idx, 'NIK']),
+            'LEVEL_JABATAN': df.loc[idx, 'LEVEL JABATAN'],
+            'MASA_JABATAN': df.loc[idx, 'MASA JABATAN'],
+            'AVG_SCORE': df.loc[idx, 'AVG SCORE'],
+            'KETERANGAN_ASLI': df.loc[idx, 'KETERANGAN'],
+            'RF_Probability': round(rf_prob * 100, 2),
+            'XGB_Probability': round(xgb_prob * 100, 2),
+            'KNN_Probability': round(knn_prob * 100, 2),
+            'Avg_Probability': round(avg_prob * 100, 2),
+            'Prediksi_Promosi': 'Layak' if final_pred == 1 else 'Tidak Layak',
+            'Ranking_Score': round(avg_prob * 100, 2)
+        })
+    
+    return pd.DataFrame(predictions)
+
+# Fungsi visualisasi
+def plot_model_comparison(results):
+    """Plot perbandingan performa model"""
+    
+    models = list(results.keys())
+    metrics = ['accuracy', 'precision', 'recall', 'f1']
+    
+    fig = go.Figure()
+    
+    for metric in metrics:
+        values = [results[model][metric] * 100 for model in models]
+        fig.add_trace(go.Bar(
+            name=metric.capitalize(),
+            x=models,
+            y=values,
+            text=[f'{v:.2f}%' for v in values],
+            textposition='auto',
+        ))
+    
+    fig.update_layout(
+        title='📊 Perbandingan Performa Model',
+        xaxis_title='Model',
+        yaxis_title='Score (%)',
+        barmode='group',
+        height=500,
+        showlegend=True
+    )
+    
+    return fig
+
+def plot_confusion_matrices(results):
+    """Plot confusion matrix untuk semua model"""
+    
+    fig = make_subplots(
+        rows=1, cols=3,
+        subplot_titles=list(results.keys()),
+        specs=[[{'type': 'heatmap'}, {'type': 'heatmap'}, {'type': 'heatmap'}]]
+    )
+    
+    for i, (model_name, model_data) in enumerate(results.items(), 1):
+        cm = model_data['confusion_matrix']
+        
+        fig.add_trace(
+            go.Heatmap(
+                z=cm,
+                x=['Tidak Layak', 'Layak'],
+                y=['Tidak Layak', 'Layak'],
+                text=cm,
+                texttemplate='%{text}',
+                textfont={"size": 16},
+                colorscale='Blues',
+                showscale=False
+            ),
+            row=1, col=i
+        )
+    
+    fig.update_layout(
+        title_text='🎯 Confusion Matrix - Semua Model',
+        height=400,
+    )
+    
+    return fig
+
+def plot_ranking_distribution(df_predictions):
+    """Plot distribusi ranking score"""
+    
+    fig = px.histogram(
+        df_predictions,
+        x='Ranking_Score',
+        nbins=20,
+        color='Prediksi_Promosi',
+        title='📈 Distribusi Ranking Score Karyawan',
+        labels={'Ranking_Score': 'Ranking Score (%)', 'count': 'Jumlah Karyawan'},
+        color_discrete_map={'Layak': '#2ecc71', 'Tidak Layak': '#e74c3c'}
+    )
+    
+    fig.update_layout(height=400)
+    
+    return fig
+
+# Main app
+def main():
+    
+    # File uploader
+    st.markdown("### 📁 Upload Data Promosi")
+    uploaded_file = st.file_uploader(
+        "Pilih file Excel (Data_Promosi_2025.xlsx)",
+        type=['xlsx', 'xls'],
+        help="Upload file Excel yang berisi data promosi karyawan"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Load data
+            with st.spinner('⏳ Memuat data...'):
+                df_raw = pd.read_excel(uploaded_file, skiprows=2)
+                st.success(f'✅ Data berhasil dimuat: {df_raw.shape[0]} baris, {df_raw.shape[1]} kolom')
+            
+            # Show raw data preview
+            with st.expander("👀 Preview Data Asli"):
+                st.dataframe(df_raw.head(10), use_container_width=True)
+            
+            # Preprocessing
+            with st.spinner('🔄 Preprocessing data...'):
+                X, y, df_clean = preprocess_data(df_raw)
+            
+            if X is not None:
+                st.success(f'✅ Preprocessing selesai: {X.shape[0]} sampel, {X.shape[1]} fitur')
+                
+                # Show feature info
+                with st.expander("📊 Informasi Fitur"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("**Fitur yang Digunakan:**")
+                        for feat in X.columns:
+                            st.markdown(f"- {feat}")
+                    with col2:
+                        st.markdown("**Distribusi Target:**")
+                        target_counts = y.value_counts()
+                        st.markdown(f"- Layak Promosi: {target_counts.get(1, 0)} ({target_counts.get(1, 0)/len(y)*100:.1f}%)")
+                        st.markdown(f"- Tidak Layak: {target_counts.get(0, 0)} ({target_counts.get(0, 0)/len(y)*100:.1f}%)")
+                
+                # Training models
+                st.markdown("---")
+                st.markdown("### 🤖 Training Model Machine Learning")
+                
+                if st.button('🚀 Mulai Training & Prediksi', type='primary', use_container_width=True):
+                    
+                    # Train models
+                    results = train_models(X, y)
+                    st.success('✅ Training selesai untuk 3 model!')
+                    
+                    # Display results
+                    st.markdown("---")
+                    st.markdown("### 📊 Hasil Evaluasi Model")
+                    
+                    # Metrics cards
+                    cols = st.columns(3)
+                    for i, (model_name, model_data) in enumerate(results.items()):
+                        with cols[i]:
+                            st.markdown(f"#### {model_name}")
+                            st.metric("Accuracy", f"{model_data['accuracy']*100:.2f}%")
+                            st.metric("Precision", f"{model_data['precision']*100:.2f}%")
+                            st.metric("Recall", f"{model_data['recall']*100:.2f}%")
+                            st.metric("F1-Score", f"{model_data['f1']*100:.2f}%")
+                    
+                    # Visualizations
+                    st.markdown("---")
+                    st.markdown("### 📈 Visualisasi Performa Model")
+                    
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        fig_comparison = plot_model_comparison(results)
+                        st.plotly_chart(fig_comparison, use_container_width=True)
+                    
+                    with col2:
+                        fig_cm = plot_confusion_matrices(results)
+                        st.plotly_chart(fig_cm, use_container_width=True)
+                    
+                    # Predictions
+                    st.markdown("---")
+                    st.markdown("### 🎯 Hasil Prediksi Promosi Karyawan")
+                    
+                    with st.spinner('🔮 Memprediksi semua karyawan...'):
+                        df_predictions = predict_all_employees(results, X, df_clean)
+                    
+                    st.success(f'✅ Prediksi selesai untuk {len(df_predictions)} karyawan!')
+                    
+                    # Summary statistics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        total_layak = (df_predictions['Prediksi_Promosi'] == 'Layak').sum()
+                        st.metric("Total Layak Promosi", total_layak, 
+                                 delta=f"{total_layak/len(df_predictions)*100:.1f}%")
+                    
+                    with col2:
+                        total_tidak = (df_predictions['Prediksi_Promosi'] == 'Tidak Layak').sum()
+                        st.metric("Total Tidak Layak", total_tidak,
+                                 delta=f"{total_tidak/len(df_predictions)*100:.1f}%")
+                    
+                    with col3:
+                        avg_score = df_predictions['Ranking_Score'].mean()
+                        st.metric("Rata-rata Score", f"{avg_score:.2f}%")
+                    
+                    with col4:
+                        max_score = df_predictions['Ranking_Score'].max()
+                        st.metric("Score Tertinggi", f"{max_score:.2f}%")
+                    
+                    # Distribution plot
+                    fig_dist = plot_ranking_distribution(df_predictions)
+                    st.plotly_chart(fig_dist, use_container_width=True)
+                    
+                    # Top performers
+                    st.markdown("### 🌟 Top 10 Karyawan dengan Ranking Tertinggi")
+                    top_10 = df_predictions.nlargest(10, 'Ranking_Score')
+                    st.dataframe(
+                        top_10[['NIK', 'LEVEL_JABATAN', 'MASA_JABATAN', 'AVG_SCORE', 
+                               'Ranking_Score', 'Prediksi_Promosi']],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    # Full predictions table
+                    st.markdown("### 📋 Tabel Lengkap Prediksi")
+                    
+                    # Filter options
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        filter_prediksi = st.selectbox(
+                            "Filter berdasarkan Prediksi",
+                            ['Semua', 'Layak', 'Tidak Layak']
+                        )
+                    with col2:
+                        sort_by = st.selectbox(
+                            "Urutkan berdasarkan",
+                            ['Ranking_Score', 'NIK', 'AVG_SCORE', 'MASA_JABATAN']
+                        )
+                    
+                    # Apply filters
+                    df_filtered = df_predictions.copy()
+                    if filter_prediksi != 'Semua':
+                        df_filtered = df_filtered[df_filtered['Prediksi_Promosi'] == filter_prediksi]
+                    
+                    df_filtered = df_filtered.sort_values(sort_by, ascending=False)
+                    
+                    st.dataframe(df_filtered, use_container_width=True, hide_index=True)
+                    
+                    # Download button
+                    st.markdown("### 💾 Download Hasil Prediksi")
+                    
+                    # Prepare download
+                    csv = df_predictions.to_csv(index=False).encode('utf-8')
+                    
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    with col2:
+                        st.download_button(
+                            label="📥 Download Hasil Prediksi (CSV)",
+                            data=csv,
+                            file_name='hasil_prediksi_promosi.csv',
+                            mime='text/csv',
+                            use_container_width=True
+                        )
+                    
+                    # Model insights
+                    st.markdown("---")
+                    st.markdown("### 💡 Insight & Rekomendasi")
+                    
+                    best_model = max(results.items(), key=lambda x: x[1]['accuracy'])
+                    
+                    st.info(f"""
+                    **Model Terbaik:** {best_model[0]} dengan akurasi {best_model[1]['accuracy']*100:.2f}%
+                    
+                    **Rekomendasi:**
+                    - Dari {len(df_predictions)} karyawan, {total_layak} karyawan ({total_layak/len(df_predictions)*100:.1f}%) diprediksi layak untuk promosi
+                    - Fokus pada karyawan dengan Ranking Score > 70% untuk prioritas promosi
+                    - Pertimbangkan faktor lain seperti kebutuhan organisasi dan budget
+                    """)
+                    
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+            st.error("Pastikan file Excel memiliki format yang benar dan kolom yang sesuai.")
+    
     else:
-        tab1, tab2 = st.tabs(["📝 Input Manual", "📋 Pilih dari Data"])
+        # Instructions
+        st.info("""
+        ### 👋 Selamat Datang!
         
-        with tab1:
-            st.subheader("Input Data Karyawan Baru")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                nama_input = st.text_input("Nama Karyawan", "John Doe")
-                nilai_3bln = st.slider("Nilai 3 Bulan", 0, 100, 75)
-                nilai_6bln = st.slider("Nilai 6 Bulan", 0, 100, 80)
-                nilai_1thn = st.slider("Nilai 1 Tahun", 0, 100, 85)
-            
-            with col2:
-                jumlah_pelatihan = st.number_input("Jumlah Pelatihan", 0, 20, 3)
-                rata_nilai_pelatihan = st.slider("Rata-rata Nilai Pelatihan", 0, 100, 80)
-                jumlah_sertifikat = st.number_input("Jumlah Sertifikat", 0, 20, 2)
-            
-            with col3:
-                masa_jabatan = st.number_input("Masa Jabatan (bulan)", 0, 120, 24)
-                seksi_input = st.selectbox("Seksi", df_features['seksi'].unique())
-                catatan = st.text_area("Catatan Evaluasi", "Kinerja baik, konsisten mencapai target")
-            
-            if st.button("🎯 Prediksi Skor Promosi", type="primary"):
-                # Create input dataframe
-                sentiment, pos_kw, neg_kw = text_analysis(catatan)
-                
-                input_data = pd.DataFrame({
-                    'rata_nilai_evaluasi': [(nilai_3bln + nilai_6bln + nilai_1thn) / 3],
-                    'trend_nilai': [nilai_1thn - nilai_3bln],
-                    'jumlah_pelatihan': [jumlah_pelatihan],
-                    'rata_nilai_pelatihan': [rata_nilai_pelatihan],
-                    'jumlah_sertifikat': [jumlah_sertifikat],
-                    'masa_jabatan': [masa_jabatan],
-                    'avg_sentiment': [sentiment],
-                    'total_positive_kw': [pos_kw],
-                    'total_negative_kw': [neg_kw],
-                    'seksi_encoded': [st.session_state['le_seksi'].transform([seksi_input])[0]]
-                })
-                
-                # Predict
-                xgb_pred = st.session_state['xgb_model'].predict(input_data)[0]
-                rf_pred = st.session_state['rf_model'].predict(input_data)[0]
-                knn_pred = st.session_state['knn_model'].predict(input_data)[0]
-                
-                ensemble_pred = 0.5 * xgb_pred + 0.3 * rf_pred + 0.2 * knn_pred
-                
-                st.markdown("---")
-                st.subheader(f"📊 Hasil Prediksi untuk: **{nama_input}**")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("XGBoost", f"{xgb_pred:.1f}")
-                with col2:
-                    st.metric("Random Forest", f"{rf_pred:.1f}")
-                with col3:
-                    st.metric("KNN", f"{knn_pred:.1f}")
-                with col4:
-                    st.metric("**Ensemble (Final)**", f"{ensemble_pred:.1f}", 
-                             delta="Skor Akhir", delta_color="off")
-                
-                # Status promosi
-                if ensemble_pred >= 85:
-                    st.success(f"✅ **SANGAT LAYAK PROMOSI** - Prioritas Tinggi")
-                elif ensemble_pred >= 75:
-                    st.info(f"✔️ **LAYAK PROMOSI** - Prioritas Sedang")
-                elif ensemble_pred >= 60:
-                    st.warning(f"⚠️ **PERLU EVALUASI LEBIH LANJUT**")
-                else:
-                    st.error(f"❌ **BELUM LAYAK PROMOSI** - Perlu Pembinaan")
-                
-                # Text analysis insight
-                st.markdown("### 📝 Insight Text Analysis:")
-                st.write(f"- Sentiment Score: **{sentiment:.2f}** {'(Positif ✅)' if sentiment > 0 else '(Negatif ❌)'}")
-                st.write(f"- Kata Kunci Positif: **{pos_kw}** kata")
-                st.write(f"- Kata Kunci Negatif: **{neg_kw}** kata")
+        Untuk memulai analisis:
+        1. Klik tombol **Browse files** di atas
+        2. Upload file **Data_Promosi_2025.xlsx**
+        3. Sistem akan otomatis memproses dan menampilkan hasil
         
-        with tab2:
-            st.subheader("Pilih Karyawan dari Database")
-            
-            selected_prn = st.selectbox("Pilih Karyawan (PRN)", df_features['prn'].unique())
-            
-            if st.button("🔍 Lihat Prediksi", type="primary"):
-                karyawan_data = df_features[df_features['prn'] == selected_prn].iloc[0]
-                
-                st.markdown(f"### 👤 **{karyawan_data['nama']}** (PRN: {selected_prn})")
-                st.write(f"**Seksi:** {karyawan_data['seksi']}")
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Nilai Evaluasi", f"{karyawan_data['rata_nilai_evaluasi']:.1f}")
-                with col2:
-                    st.metric("Jumlah Pelatihan", int(karyawan_data['jumlah_pelatihan']))
-                with col3:
-                    st.metric("Skor Promosi", f"{karyawan_data['skor_promosi']:.1f}")
-                
-                st.markdown("---")
-                st.info(f"**Catatan Terakhir:** {karyawan_data['catatan_1_tahun']}")
+        **Format Data yang Dibutuhkan:**
+        - File Excel (.xlsx atau .xls)
+        - Minimal memiliki kolom: NIK, LEVEL JABATAN, MASA JABATAN, AVG SCORE, KETERANGAN
+        """)
+        
+        # Sample preview
+        st.markdown("### 📖 Contoh Format Data")
+        sample_data = pd.DataFrame({
+            'NIK': [2247, 2869, 2862],
+            'LEVEL JABATAN': ['Asst. Manager', 'Group Leader', 'Group Leader'],
+            'MASA JABATAN': [15, 12, 10],
+            'AVG SCORE': [1.5, 1.36, 1.44],
+            'KETERANGAN': ['B', 'C', 'C']
+        })
+        st.dataframe(sample_data, use_container_width=True, hide_index=True)
 
-# ===== MENU 4: RANKING =====
-elif menu == "📈 Ranking":
-    st.header("📈 Analisis Data Karyawan")
-    
-    tab1, tab2 = st.tabs(["🏆 Top 20 Karyawan", "🔍 Filter & Analisis"])
-    
-    with tab1:
-        st.subheader("🏆 Top 20 Karyawan dengan Skor Promosi Tertinggi")
-        
-        top_20 = df_features.nlargest(20, 'skor_promosi')[['nama', 'prn', 'seksi', 'skor_promosi', 
-                                                             'rata_nilai_evaluasi', 'jumlah_pelatihan']]
-        top_20['Ranking'] = range(1, 21)
-        top_20 = top_20[['Ranking', 'nama', 'prn', 'seksi', 'skor_promosi', 'rata_nilai_evaluasi', 'jumlah_pelatihan']]
-        
-        st.dataframe(top_20, use_container_width=True, hide_index=True)
-        
-        # Visualization
-        fig = px.bar(top_20, x='skor_promosi', y='nama', orientation='h',
-                    title="Top 20 Karyawan Berdasarkan Skor Promosi",
-                    color='skor_promosi', color_continuous_scale='RdYlGn',
-                    labels={'skor_promosi': 'Skor Promosi', 'nama': 'Nama Karyawan'})
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with tab2:
-        st.subheader("🔍 Filter Karyawan")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            seksi_filter = st.multiselect("Filter Seksi", df_features['seksi'].unique())
-            skor_min = st.slider("Skor Promosi Minimal", 0, 100, 0)
-        
-        with col2:
-            search_nama = st.text_input("Cari Nama Karyawan")
-            show_top = st.checkbox("Tampilkan hanya Top Performers (Skor ≥ 80)")
-        
-        # Apply filters
-        filtered_df = df_features.copy()
-        
-        if seksi_filter:
-            filtered_df = filtered_df[filtered_df['seksi'].isin(seksi_filter)]
-        if skor_min > 0:
-            filtered_df = filtered_df[filtered_df['skor_promosi'] >= skor_min]
-        if search_nama:
-            filtered_df = filtered_df[filtered_df['nama'].str.contains(search_nama, case=False)]
-        if show_top:
-            filtered_df = filtered_df[filtered_df['skor_promosi'] >= 80]
-        
-        st.write(f"**Hasil Filter: {len(filtered_df)} karyawan**")
-        display_cols = ['nama', 'prn', 'seksi', 'skor_promosi', 'rata_nilai_evaluasi', 
-                       'jumlah_pelatihan', 'avg_sentiment']
-        st.dataframe(filtered_df[display_cols].sort_values('skor_promosi', ascending=False), 
-                    use_container_width=True, hide_index=True)
-        
-        st.markdown("---")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### 📊 Statistik Skor Promosi")
-            stats_df = filtered_df['skor_promosi'].describe()
-            st.dataframe(stats_df, use_container_width=True)
-            
-            # Box plot
-            fig = px.box(filtered_df, y='skor_promosi', title="Box Plot - Skor Promosi")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.markdown("### 📈 Distribusi per Seksi")
-            
-            seksi_stats = filtered_df.groupby('seksi').agg({
-                'skor_promosi': ['mean', 'min', 'max', 'count']
-            }).reset_index()
-            seksi_stats.columns = ['Seksi', 'Mean', 'Min', 'Max', 'Count']
-            seksi_stats = seksi_stats.sort_values('Mean', ascending=False).head(10)
-            
-            st.dataframe(seksi_stats, use_container_width=True, hide_index=True)
-
-# ===== MENU 5: TENTANG =====
-else:
-    st.header("ℹ️ Tentang Sistem Pendukung Keputusan Promosi Karyawan")
-    
-    st.markdown("""
-    ## 🎯 Tujuan Sistem
-    
-    Sistem ini dirancang untuk membantu **PT TOTO** dalam proses pengambilan keputusan promosi karyawan 
-    secara objektif, transparan, dan berbasis data menggunakan teknologi **Hybrid Machine Learning** 
-    dan **Text Analysis**.
-    
-    ---
-    
-    ## 🔬 Metodologi
-    
-    ### **1. Hybrid Machine Learning Approach**
-    
-    Sistem menggunakan **3 model Machine Learning** yang digabungkan (ensemble):
-    
-    | Model | Bobot (α) | Keunggulan |
-    |-------|-----------|------------|
-    | **XGBoost** | 0.5 | Optimal untuk non-linear patterns, handling missing values |
-    | **Random Forest** | 0.3 | Robust, interpretable, feature importance analysis |
-    | **K-Nearest Neighbors** | 0.2 | Baseline model, similarity-based prediction |
-    
-    **Formula Ensemble:**
-    Skor Akhir = (0.5 × XGBoost) + (0.3 × Random Forest) + (0.2 × KNN)
-    ### **2. Text Analysis (NLP)**
-    
-    Analisis teks pada catatan evaluasi karyawan meliputi:
-    
-    - **Sentiment Analysis**: Mengukur tone positif/negatif dari catatan evaluasi
-    - **Keyword Extraction**: Menghitung kata kunci positif dan negatif
-    - **Feature Engineering**: Mengkonversi teks menjadi numerical features
-    
-    **Contoh Keywords:**
-    - ✅ Positif: baik, excellent, rajin, proaktif, konsisten
-    - ❌ Negatif: kurang, terlambat, masalah, komplain
-    
-    ---
-    
-    ## 📊 Feature Engineering
-    
-    ### **Numerical Features (60%)**
-    
-    1. **Rata-rata Nilai Evaluasi** (40%): Kombinasi nilai 3 bulan, 6 bulan, 1 tahun
-    2. **Trend Nilai** (5%): Perkembangan nilai dari waktu ke waktu
-    3. **Jumlah Pelatihan** (20%): Total pelatihan yang diikuti
-    4. **Rata-rata Nilai Pelatihan** (15%): Performance di pelatihan
-    5. **Jumlah Sertifikat** (10%): Sertifikat yang diperoleh
-    6. **Masa Jabatan** (10%): Lama bekerja di posisi saat ini
-    
-    ### **Text-derived Features (40%)**
-    
-    1. **Average Sentiment Score** (15%): Sentiment dari catatan evaluasi
-    2. **Total Positive Keywords** (15%): Jumlah kata positif
-    3. **Total Negative Keywords** (10%): Jumlah kata negatif
-    
-    ---
-    
-    ## 🎯 Interpretasi Skor Promosi
-    
-    | Skor | Status | Rekomendasi |
-    |------|--------|-------------|
-    | **85-100** | 🟢 Sangat Layak Promosi | Prioritas Tinggi - Segera promosi |
-    | **75-84** | 🔵 Layak Promosi | Prioritas Sedang - Evaluasi lebih lanjut |
-    | **60-74** | 🟡 Perlu Evaluasi | Perlu improvement di beberapa area |
-    | **< 60** | 🔴 Belum Layak | Perlu pembinaan dan pelatihan intensif |
-    
-    ---
-    
-    ## 📈 Alur Kerja Sistem
-    1. Input Data Karyawan
-   ↓
-2. Data Preprocessing & Feature Engineering
-   ↓
-3. Text Analysis (Sentiment + Keywords)
-   ↓
-4. Model Prediction (XGBoost, RF, KNN)
-   ↓
-5. Ensemble (Weighted Average)
-   ↓
-6. Output: Skor Promosi (0-100) + Ranking
----
-    
-    ## 💡 Keunggulan Sistem
-    
-    ✅ **Objektif**: Berbasis data dan algoritma, mengurangi bias subjektif  
-    ✅ **Transparan**: Setiap faktor memiliki bobot yang jelas  
-    ✅ **Komprehensif**: Menggabungkan data numerik dan analisis teks  
-    ✅ **Scalable**: Dapat menangani ribuan karyawan  
-    ✅ **Interpretable**: Feature importance analysis untuk insight bisnis  
-    
-    ---
-    
-    ## 🛠️ Teknologi yang Digunakan
-    
-    - **Python 3.9+**
-    - **Streamlit**: Web framework untuk dashboard interaktif
-    - **Scikit-learn**: Machine Learning library
-    - **XGBoost**: Gradient boosting framework
-    - **TextBlob**: Natural Language Processing
-    - **Pandas & NumPy**: Data manipulation
-    - **Plotly**: Interactive visualization
-    
-    ---
-    
-    ## 📚 Studi Kasus: PT TOTO
-    
-    **Dataset:**
-    - 🧑‍💼 1,000 karyawan
-    - 📋 3,000+ data pelatihan
-    - 📊 3 periode evaluasi (3 bulan, 6 bulan, 1 tahun)
-    
-    **Hasil:**
-    - Model Accuracy (R² Score): **~0.85**
-    - MAE (Mean Absolute Error): **< 5 poin**
-    - Processing Time: **< 2 detik** untuk 1000 karyawan
-    
-    ---
-    
-    ## 👨‍💻 Pengembang
-    
-    **Skripsi:**  
-    "Proses Sistem Pendukung Keputusan Promosi Karyawan Menggunakan Hybrid Machine Learning dan Text Analysis"
-    
-    **Studi Kasus:** PT TOTO Indonesia
-    
-    ---
-    
-    ## 📝 Catatan Penting
-    
-    ⚠️ **Disclaimer:**  
-    Sistem ini adalah **alat bantu** dalam pengambilan keputusan. Keputusan final promosi tetap 
-    mempertimbangkan faktor lain seperti kebutuhan organisasi, budget, dan kebijakan perusahaan.
-    
-    """)
-
-# ===== FOOTER =====
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray; padding: 20px;'>
-    <p>© 2025 Sistem Pendukung Keputusan Promosi Karyawan PT TOTO</p>
-    <p>Developed with ❤️ using Streamlit | Powered by Hybrid Machine Learning & Text Analysis</p>
-</div>
-""", unsafe_allow_html=True)
+if __name__ == "__main__":
+    main()
