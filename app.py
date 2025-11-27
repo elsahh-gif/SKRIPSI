@@ -55,7 +55,7 @@ st.markdown('<p class="sub-header">PT XYZ - Analisis Machine Learning untuk Kepu
 
 # Sidebar
 with st.sidebar:
-    st.image("https://via.placeholder.com/200x80/1f77b4/ffffff?text=PT+TOTO", use_container_width=True)
+    st.image("https://via.placeholder.com/200x80/1f77b4/ffffff?text=PT+XYZ", use_container_width=True)
     
     st.markdown("### 📊 Cara Menggunakan")
     st.markdown("""
@@ -67,7 +67,6 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("**Developed by:** Elisabet Lumban Tobing")
-    st.markdown("**Version:** 1.0")
 
 # Fungsi preprocessing data
 def preprocess_data(df):
