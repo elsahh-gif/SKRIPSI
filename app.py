@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 
 # Konfigurasi halaman
 st.set_page_config(
-    page_title="Sistem Prediksi Promosi Karyawan PT TOTO",
+    page_title="Sistem Prediksi Promosi Karyawan PT XYZ",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -56,15 +56,6 @@ st.markdown('<p class="sub-header">PT TOTO Indonesia - Analisis Machine Learning
 # Sidebar
 with st.sidebar:
     st.image("https://via.placeholder.com/200x80/1f77b4/ffffff?text=PT+TOTO", use_container_width=True)
-    st.markdown("### 📋 Tentang Aplikasi")
-    st.info("""
-    Aplikasi ini menggunakan 3 algoritma Machine Learning:
-    1. **Random Forest** ⭐
-    2. **XGBoost** ⭐
-    3. **K-Nearest Neighbors** ⭐
-    
-    untuk memprediksi kelayakan promosi karyawan berdasarkan data historis.
-    """)
     
     st.markdown("### 📊 Cara Menggunakan")
     st.markdown("""
@@ -75,7 +66,7 @@ with st.sidebar:
     """)
     
     st.markdown("---")
-    st.markdown("**Developed by:** Tim Skripsi PT TOTO")
+    st.markdown("**Developed by:** Elisabet Lumban Tobing")
     st.markdown("**Version:** 1.0")
 
 # Fungsi preprocessing data
@@ -161,7 +152,7 @@ def train_models(X, y):
     results = {}
     
     # 1. Random Forest (Terbaik berdasarkan analisis)
-    with st.spinner('🌲 Training Random Forest...'):
+    with st.spinner('Training Random Forest...'):
         rf_model = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=10)
         rf_model.fit(X_train, y_train)
         rf_pred = rf_model.predict(X_test)
@@ -180,7 +171,7 @@ def train_models(X, y):
         }
     
     # 2. XGBoost
-    with st.spinner('🚀 Training XGBoost...'):
+    with st.spinner('Training XGBoost...'):
         xgb_model = XGBClassifier(n_estimators=100, random_state=42, max_depth=5, learning_rate=0.1)
         xgb_model.fit(X_train, y_train)
         xgb_pred = xgb_model.predict(X_test)
@@ -199,7 +190,7 @@ def train_models(X, y):
         }
     
     # 3. K-Nearest Neighbors
-    with st.spinner('👥 Training K-Nearest Neighbors...'):
+    with st.spinner('Training K-Nearest Neighbors...'):
         knn_model = KNeighborsClassifier(n_neighbors=5)
         knn_model.fit(X_train, y_train)
         knn_pred = knn_model.predict(X_test)
@@ -316,7 +307,7 @@ def plot_confusion_matrices(results):
         )
     
     fig.update_layout(
-        title_text='🎯 Confusion Matrix - Semua Model',
+        title_text='Confusion Matrix - Semua Model',
         height=400,
     )
     
@@ -358,7 +349,7 @@ def main():
                 st.success(f'✅ Data berhasil dimuat: {df_raw.shape[0]} baris, {df_raw.shape[1]} kolom')
             
             # Show raw data preview
-            with st.expander("👀 Preview Data Asli"):
+            with st.expander("Preview Data Asli"):
                 st.dataframe(df_raw.head(10), use_container_width=True)
             
             # Preprocessing
@@ -383,9 +374,9 @@ def main():
                 
                 # Training models
                 st.markdown("---")
-                st.markdown("### 🤖 Training Model Machine Learning")
+                st.markdown("###Training Model Machine Learning")
                 
-                if st.button('🚀 Mulai Training & Prediksi', type='primary', use_container_width=True):
+                if st.button('Mulai Training & Prediksi', type='primary', use_container_width=True):
                     
                     # Train models
                     results = train_models(X, y)
@@ -421,9 +412,9 @@ def main():
                     
                     # Predictions
                     st.markdown("---")
-                    st.markdown("### 🎯 Hasil Prediksi Promosi Karyawan")
+                    st.markdown("###Hasil Prediksi Promosi Karyawan")
                     
-                    with st.spinner('🔮 Memprediksi semua karyawan...'):
+                    with st.spinner('Memprediksi semua karyawan...'):
                         df_predictions = predict_all_employees(results, X, df_clean)
                     
                     st.success(f'✅ Prediksi selesai untuk {len(df_predictions)} karyawan!')
@@ -526,8 +517,7 @@ def main():
     else:
         # Instructions
         st.info("""
-        ### 👋 Selamat Datang!
-        
+        ### 
         Untuk memulai analisis:
         1. Klik tombol **Browse files** di atas
         2. Upload file **Data_Promosi_2025.xlsx**
