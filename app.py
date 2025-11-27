@@ -51,7 +51,7 @@ st.markdown("""
 
 # Header
 st.markdown('<p class="main-header">📊 Sistem Prediksi Promosi Karyawan</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">PT TOTO Indonesia - Analisis Machine Learning untuk Keputusan Promosi</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-header">PT XYZ - Analisis Machine Learning untuk Keputusan Promosi</p>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
