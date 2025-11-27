@@ -516,8 +516,7 @@ def main():
     else:
         # Instructions
         st.info("""
-        ### 
-        Untuk memulai analisis:
+        ### Untuk memulai analisis:
         1. Klik tombol **Browse files** di atas
         2. Upload file **Data_Promosi_2025.xlsx**
         3. Sistem akan otomatis memproses dan menampilkan hasil
